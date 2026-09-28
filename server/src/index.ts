@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { db, getEdges, getEvidence } from './db';
-import { analyzeMustPass, analyzeTimeWindow, cycleAfterAdding, findBypassPath, findCycle, findRedundantEdges, mergeConflict, planMergeEdges, planPrune, queryOrder, topoLevels } from './graph';
+import { analyzeMustPass, analyzeTimeWindow, cycleAfterAdding, findBypassPath, findCycle, findRedundantEdges, mergeConflict, minimumReviewChains, planMergeEdges, planPrune, queryOrder, topoLevels } from './graph';
 import {
   checkPreviewToken,
   computeImportDiff,
@@ -16,7 +16,7 @@ import {
   toEvidenceRows,
 } from './importing';
 import { resetWithSample, seedIfEmpty } from './seed';
-import type { BypassPathResult, GraphState, MustPassResult, OrderQueryResult, OrderWitness, PruneResult, RedundancyReport, TimeWindowResult } from './types';
+import type { BypassPathResult, GraphState, MinimumChainsResult, MustPassResult, OrderQueryResult, OrderWitness, PruneResult, RedundancyReport, TimeWindowResult } from './types';
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -412,6 +412,26 @@ app.get('/api/time-window', (req, res) => {
         }
       : null,
   };
+  res.json(result);
+});
+
+/* ---------- 最少复核链分组（只读） ---------- */
+
+/**
+ * 以当前全部卡片与「必须早于」连线为输入，求全局最少复核组数与一份对应分组。
+ * 纯只读：沿用当前图数据做 DAG 最小路径覆盖（传递闭包 + 二分图最大匹配，全局最优，
+ * 非贪心、非拓扑层数），不写数据库。空图返回 0 组，孤立卡单独成组。
+ */
+app.get('/api/review-chains', (_req, res) => {
+  const evidence = getEvidence();
+  const analysis = minimumReviewChains(
+    evidence.map((e) => ({ id: e.id, createdAt: e.createdAt })),
+    getEdges(),
+  );
+  if (!analysis) {
+    return res.status(409).json({ message: '当前约束图存在环，无法生成复核链分组' });
+  }
+  const result: MinimumChainsResult = { cardCount: evidence.length, ...analysis };
   res.json(result);
 });
 

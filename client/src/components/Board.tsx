@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Conflict } from '../App';
-import type { Evidence, GraphState, MustPassHighlight, OrderWitness, RedundantEdge, TimeWindowHighlight } from '../types';
+import type { Evidence, GraphState, MustPassHighlight, OrderWitness, RedundantEdge, ReviewChainHighlight, TimeWindowHighlight } from '../types';
 
 interface Rect {
   x: number;
@@ -25,6 +25,8 @@ interface BoardProps {
   mustPass: MustPassHighlight | null;
   /** 时间窗口分析：冲突路径 / 待定位的越界卡片（红色系） */
   timeWindow: TimeWindowHighlight | null;
+  /** 最少复核链：当前选中组的组员（青绿系，卡片角标显示组内序号） */
+  reviewChain: ReviewChainHighlight | null;
   onStartLink: (id: string) => void;
   onCancelLink: () => void;
   onConnect: (fromId: string, toId: string) => void;
@@ -169,6 +171,21 @@ export default function Board(props: BoardProps) {
   const twPathNodes = useMemo(() => new Set(props.timeWindow?.path ?? []), [props.timeWindow]);
   const twPivotId = props.timeWindow?.pivotId ?? null;
   const twOutOfRange = useMemo(() => new Set(props.timeWindow?.outOfRange ?? []), [props.timeWindow]);
+
+  /* 最少复核链高亮：组员卡片（青绿系）与其在组内的先后序号（0 起） */
+  const chainPos = useMemo(() => {
+    const m = new Map<string, number>();
+    props.reviewChain?.group.forEach((id, i) => m.set(id, i));
+    return m;
+  }, [props.reviewChain]);
+  const chainFirstId = props.reviewChain && props.reviewChain.group.length > 0 ? props.reviewChain.group[0] : null;
+
+  /* 选中复核组时把首张组员卡片滚动到可视区域（定位） */
+  useEffect(() => {
+    if (!chainFirstId) return;
+    const el = boardRef.current?.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(chainFirstId)}"]`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  }, [chainFirstId]);
 
   /* 越界固定卡首次出现时滚动到可视区域（定位） */
   useEffect(() => {
@@ -390,6 +407,8 @@ export default function Board(props: BoardProps) {
               const isTwPath = twPathNodes.has(ev.id);
               const isTwPivot = twPivotId === ev.id;
               const isTwOutOfRange = twOutOfRange.has(ev.id);
+              const chainIndex = chainPos.get(ev.id);
+              const isChainMember = chainIndex !== undefined;
               return (
                 <article
                   key={ev.id}
@@ -411,12 +430,14 @@ export default function Board(props: BoardProps) {
                     isTwPath ? 'tw-path' : '',
                     isTwPivot ? 'tw-pivot' : '',
                     isTwOutOfRange ? 'tw-outrange' : '',
+                    isChainMember ? 'chain-member' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')}
                   onClick={() => onCardClick(ev)}
                 >
                   <h3 className="card-title">{ev.title}</h3>
+                  {isChainMember && <span className="chain-badge" title="该卡在复核组内的先后序号">第 {chainIndex! + 1} 步</span>}
                   <div className="card-meta">
                     {fmtTime(ev.occurredAt) && <span className="chip">🕒 {fmtTime(ev.occurredAt)}</span>}
                     {ev.source && <span className="chip">来源 · {ev.source}</span>}

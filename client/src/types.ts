@@ -173,6 +173,27 @@ export interface TimeWindowHighlight {
   outOfRange: string[];
 }
 
+/* ---------- 最少复核链分组（只读） ---------- */
+
+/** 最少复核链分组结果：全局最少组数及一份对应分组 */
+export interface MinimumChainsResult {
+  cardCount: number;
+  /** 全局最少组数（DAG 最小路径覆盖）；空图为 0 */
+  groupCount: number;
+  /**
+   * 一份达到最少组数的分组：每组内卡片按约束先后排列，
+   * 相邻卡片前者沿现有连线可达后者（允许路径经过其他组卡片，不要求直接相连）；
+   * 每张卡片恰好出现一次，孤立卡单独成组。
+   */
+  groups: string[][];
+}
+
+/** 最少复核链在画布上的高亮视图：当前选中的组及其组内序号（0 起） */
+export interface ReviewChainHighlight {
+  /** 被选中组的全部卡片（已按约束先后排列） */
+  group: string[];
+}
+
 /* ---------- 导入差异预览（只读） ---------- */
 
 /** 参与逐字段比较的卡片字段 */

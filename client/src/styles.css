@@ -1132,6 +1132,134 @@ body {
   animation: card-shake-glow 1.2s ease-in-out infinite;
 }
 
+/* ---------- 最少复核链分组（青绿系） ---------- */
+
+.chain-panel {
+  background: var(--bg-soft);
+  border: 1px solid rgba(45, 212, 191, 0.4);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 14px;
+}
+
+.chain-head h2 {
+  margin: 0 0 4px;
+  font-size: 15.5px;
+  color: #2dd4bf;
+}
+
+.chain-head p {
+  margin: 0 0 10px;
+  max-width: 960px;
+  line-height: 1.6;
+}
+
+.chain-summary {
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.chain-summary b {
+  color: #2dd4bf;
+  font-size: 15px;
+}
+
+.chain-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chain-item {
+  width: 100%;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  padding: 9px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.chain-item:hover {
+  border-color: #2dd4bf;
+}
+
+.chain-item.active {
+  border-color: #2dd4bf;
+  background: rgba(45, 212, 191, 0.1);
+  box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.22);
+}
+
+.chain-index {
+  font-size: 12.5px;
+  color: #2dd4bf;
+  font-weight: 600;
+}
+
+.chain-seq {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.chain-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chain-node:not(:last-child)::after {
+  content: '→';
+  color: var(--muted);
+  margin-left: 2px;
+}
+
+.chain-pos {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(45, 212, 191, 0.16);
+  border: 1px solid rgba(45, 212, 191, 0.55);
+  color: #5eead4;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 画布上：选中复核组的组员卡片（青绿描边） */
+.card.chain-member {
+  border-color: #2dd4bf;
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.2);
+}
+
+/* 组员卡片右上角的组内序号角标 */
+.chain-badge {
+  position: absolute;
+  top: -9px;
+  right: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0e1220;
+  background: #2dd4bf;
+  border-radius: 999px;
+  padding: 2px 9px;
+  box-shadow: 0 2px 8px rgba(45, 212, 191, 0.45);
+}
+
 /* ---------- 弹窗 ---------- */
 
 .modal-backdrop {

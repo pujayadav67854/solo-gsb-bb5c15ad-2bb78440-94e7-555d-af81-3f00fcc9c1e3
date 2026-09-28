@@ -9,6 +9,7 @@ import {
   findPath,
   findRedundantEdges,
   mergeConflict,
+  minimumReviewChains,
   planMergeEdges,
   planPrune,
   queryOrder,
@@ -733,4 +734,184 @@ test('analyzeTimeWindow：有环图返回 null', () => {
     { fromId: 'b', toId: 'a' },
   ];
   assert.equal(analyzeTimeWindow(nodes, edges, fixedMap({ a: null, b: null }), T(2), T(5), GAP), null);
+});
+
+/* ---------- 最少复核链分组（DAG 最小路径覆盖） ---------- */
+
+/** BFS 沿边方向判定 from 是否可达 to */
+function canReach(edges: Array<{ fromId: string; toId: string }>, from: string, to: string): boolean {
+  const adj = new Map<string, string[]>();
+  for (const e of edges) {
+    const list = adj.get(e.fromId);
+    if (list) list.push(e.toId);
+    else adj.set(e.fromId, [e.toId]);
+  }
+  const seen = new Set<string>([from]);
+  const queue = [from];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    if (cur === to) return true;
+    for (const nxt of adj.get(cur) ?? []) {
+      if (!seen.has(nxt)) {
+        seen.add(nxt);
+        queue.push(nxt);
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 独立参照实现（与被测算法无关）：枚举全部子集的暴力最小链覆盖（n≤10）。
+ * 先以「可达关系下存在哈密顿路径」判定一个子集能否单独成链（位元 DP），
+ * 再做子集 DP 求最少链数，用于证明服务端结果是全局最优而非贪心/拓扑层数。
+ */
+function bruteForceMinChains(ids: string[], edges: Array<{ fromId: string; toId: string }>): number {
+  const n = ids.length;
+  if (n === 0) return 0;
+  const reach: boolean[][] = Array.from({ length: n }, () => Array(n).fill(false));
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) reach[i][j] = i !== j && canReach(edges, ids[i], ids[j]);
+  // endOk[mask]：mask 排成一条相邻可达的链时，可能作为链尾的节点集合
+  const endOk: Set<number>[] = Array.from({ length: 1 << n }, () => new Set<number>());
+  for (let v = 0; v < n; v++) endOk[1 << v].add(v);
+  for (let mask = 1; mask < 1 << n; mask++) {
+    for (let v = 0; v < n; v++) {
+      if (!(mask & (1 << v)) || endOk[mask].has(v)) continue;
+      const rest = mask ^ (1 << v);
+      for (const u of endOk[rest]) {
+        if (reach[u][v]) {
+          endOk[mask].add(v);
+          break;
+        }
+      }
+    }
+  }
+  const chainable = (mask: number): boolean => endOk[mask].size > 0;
+  const dp = new Array<number>(1 << n).fill(Infinity);
+  dp[0] = 0;
+  for (let mask = 1; mask < 1 << n; mask++) {
+    for (let sub = mask; sub > 0; sub = (sub - 1) & mask) {
+      if (chainable(sub)) dp[mask] = Math.min(dp[mask], dp[mask ^ sub] + 1);
+    }
+  }
+  return dp[(1 << n) - 1];
+}
+
+/** 校验分组结构合法：每卡恰好一组、组内相邻卡片沿现有连线可达 */
+function assertValidPartition(
+  result: { groupCount: number; groups: string[][] },
+  ids: string[],
+  edges: Array<{ fromId: string; toId: string }>,
+): void {
+  assert.equal(result.groupCount, result.groups.length);
+  const covered = result.groups.flat();
+  assert.equal(covered.length, ids.length);
+  assert.equal(new Set(covered).size, ids.length, '每张卡片必须恰好归入一组');
+  for (const id of ids) assert.ok(covered.includes(id), `卡片 ${id} 必须被覆盖`);
+  for (const group of result.groups) {
+    for (let i = 0; i + 1 < group.length; i++) {
+      assert.ok(canReach(edges, group[i], group[i + 1]), `组内 ${group[i]} 必须沿现有连线可达 ${group[i + 1]}`);
+    }
+  }
+}
+
+test('minimumReviewChains：空图返回 0 组', () => {
+  assert.deepEqual(minimumReviewChains([], []), { groupCount: 0, groups: [] });
+});
+
+test('minimumReviewChains：线性链全部归入一组，孤立卡单独成组', () => {
+  const ids = ['a', 'b', 'c', 'iso'];
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'b', toId: 'c' },
+  ];
+  const r = minimumReviewChains(nodesOf(ids), edges)!;
+  assertValidPartition(r, ids, edges);
+  assert.deepEqual(r.groups, [
+    ['a', 'b', 'c'],
+    ['iso'],
+  ]);
+  assert.equal(r.groupCount, 2);
+  assert.equal(r.groupCount, bruteForceMinChains(ids, edges));
+});
+
+test('minimumReviewChains：菱形图 2 组即最优（拓扑层数为 3，不能用层数代替）', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'a', toId: 'c' },
+    { fromId: 'b', toId: 'd' },
+    { fromId: 'c', toId: 'd' },
+  ];
+  const r = minimumReviewChains(nodesOf(ids), edges)!;
+  assertValidPartition(r, ids, edges);
+  assert.equal(r.groupCount, 2);
+  assert.equal(r.groupCount, bruteForceMinChains(ids, edges));
+  // 拓扑层数（最长路径）为 3，明确多于最优组数
+  assert.equal(topoLevels(ids, edges)?.a, 0);
+  assert.equal(topoLevels(ids, edges)?.d, 2);
+});
+
+test('minimumReviewChains：允许组员非直连——间隔卡片在别组，按可达性接续', () => {
+  // 构造：u、p 都指向 w，w 指向 v、q（分叉-汇合，只有四条直接边）。
+  // 最优为 2 组，且任一最优划分都必有一组以「跨 w 的可达关系」接续
+  // （如 [u,q]：u 沿 u→w→q 可达 q，但 w 属于另一组），贪心只认直连会得到 3 组。
+  const ids = ['u', 'p', 'w', 'v', 'q'];
+  const edges = [
+    { fromId: 'u', toId: 'w' },
+    { fromId: 'p', toId: 'w' },
+    { fromId: 'w', toId: 'v' },
+    { fromId: 'w', toId: 'q' },
+  ];
+  const r = minimumReviewChains(nodesOf(ids), edges)!;
+  assertValidPartition(r, ids, edges);
+  assert.equal(r.groupCount, 2);
+  assert.equal(r.groupCount, bruteForceMinChains(ids, edges));
+  // 存在一组相邻卡片只可达、不直连，且其经过的中间卡片 w 在另一组
+  const hasCrossGroupSplice = r.groups.some((g) =>
+    g.some((id, i) => {
+      if (i === 0) return false;
+      const prev = g[i - 1];
+      const direct = edges.some((e) => e.fromId === prev && e.toId === id);
+      if (direct) return false;
+      return r.groups.some((other) => other !== g && other.includes('w'));
+    }),
+  );
+  assert.ok(hasCrossGroupSplice, '最优分组应允许相邻组员不直连、路径经过其他组卡片');
+});
+
+test('minimumReviewChains：多个弱连通分量与孤立卡各自成链，组数为全局最优', () => {
+  const ids = ['a', 'b', 'x', 'y', 'iso1', 'iso2'];
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'x', toId: 'y' },
+  ];
+  const r = minimumReviewChains(nodesOf(ids), edges)!;
+  assertValidPartition(r, ids, edges);
+  assert.equal(r.groupCount, 4);
+  assert.equal(r.groupCount, bruteForceMinChains(ids, edges));
+});
+
+test('minimumReviewChains：结果对随机 DAG 与暴力枚举一致，且确定性可复现', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+  // 固定一批边（只允许 id 升序方向以保证无环）
+  const candidates: Array<[number, number]> = [
+    [0, 1], [0, 2], [1, 3], [2, 3], [2, 4], [3, 5], [4, 5], [1, 4], [5, 6], [0, 6],
+  ];
+  for (let mask = 0; mask < 1 << candidates.length; mask += 13) {
+    const edges = candidates.filter((_, i) => mask & (1 << i)).map(([i, j]) => ({ fromId: ids[i], toId: ids[j] }));
+    const r = minimumReviewChains(nodesOf(ids), edges)!;
+    assertValidPartition(r, ids, edges);
+    assert.equal(r.groupCount, bruteForceMinChains(ids, edges), `mask=${mask} 应与暴力最优一致`);
+    assert.deepEqual(r, minimumReviewChains(nodesOf(ids), edges), '相同输入必须得到相同分组');
+  }
+});
+
+test('minimumReviewChains：有环图返回 null', () => {
+  const nodes = nodesOf(['a', 'b']);
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'b', toId: 'a' },
+  ];
+  assert.equal(minimumReviewChains(nodes, edges), null);
 });

@@ -602,3 +602,97 @@ export function analyzeTimeWindow(
   });
   return { feasible: true, order, cards, outOfRange: [], conflict: null };
 }
+
+/* ---------- 最少复核链分组（DAG 最小路径覆盖，全局最优） ---------- */
+
+export interface MinimumChainsAnalysis {
+  /** 全局最少组数（最小路径覆盖的路径条数）；空图为 0 */
+  groupCount: number;
+  /**
+   * 一份达到最少组数的分组：每组内卡片按约束先后排列，
+   * 相邻卡片只要求前者沿现有连线可达后者（路径可经过其他组的卡片，不必直接相连）；
+   * 每张卡片恰好出现一次，孤立卡单独成组。
+   */
+  groups: string[][];
+}
+
+/**
+ * 最少复核链（纯只读）：把全部卡片划分成最少数量的有序组，
+ * 使每组内相邻卡片之间前者都能沿现有「必须早于」连线到达后者
+ * （可达即可，允许路径经过其他组的卡片，不要求组员直接相连）。
+ *
+ * 这正是有向无环图的「最小路径覆盖」：在传递闭包上把同组相邻卡片两两接续，
+ * 一种分组与「传递闭包二分图」的一个匹配一一对应——左侧 u 与右侧 v 连边当且仅当
+ * u 可达 v（u≠v），每条匹配边表示组内 u 直接排在 v 之前。n 个节点、m 条匹配边
+ * 覆盖成 n−m 条链，故最少组数 = n − 最大匹配数（Dilworth 定理 / 二分图最大匹配归约，
+ * 全局最优；不是贪心分组，也不是拓扑层数——拓扑层数只是上界，一般并非最优）。
+ *
+ * 最大匹配用 Kuhn 增广路算法求得；节点按确定性拓扑序处理、可达集合按拓扑序枚举，
+ * 保证同一输入永远得到同一份最优分组。空图返回 0 组，孤立卡（无任何可达关系）单独成组。
+ * 图有环时返回 null。
+ */
+export function minimumReviewChains(nodes: OrderableNode[], edges: EdgeLike[]): MinimumChainsAnalysis | null {
+  const order = stableTopoOrder(nodes, edges);
+  if (!order) return null;
+
+  /* 传递闭包：reach[u] 为 u 沿现有连线可达的全部其他节点（按拓扑序） */
+  const adj = new Map<string, string[]>();
+  for (const id of order) adj.set(id, []);
+  for (const e of edges) {
+    if (adj.has(e.fromId) && adj.has(e.toId)) adj.get(e.fromId)!.push(e.toId);
+  }
+  const pos = new Map(order.map((id, i) => [id, i]));
+  for (const list of adj.values()) {
+    // 邻接点在拓扑序中必然更靠后；按拓扑位置排序，保证可达集合枚举顺序确定
+    list.sort((x, y) => pos.get(x)! - pos.get(y)!);
+  }
+  const reach = new Map<string, Set<string>>();
+  for (let i = order.length - 1; i >= 0; i--) {
+    const u = order[i];
+    const seen = new Set<string>();
+    for (const v of adj.get(u)!) {
+      seen.add(v);
+      for (const w of reach.get(v) ?? []) seen.add(w);
+    }
+    reach.set(u, seen);
+  }
+
+  /* 传递闭包二分图上的 Kuhn 最大匹配：matchR[v] = 当前与右侧 v 配对的左侧节点。
+     增广路保证找到全局最大匹配（对应全局最少组数），与逐对贪心有本质区别。 */
+  const matchR = new Map<string, string>();
+  for (const u of order) {
+    const seenLeft = new Set<string>();
+    const augment = (x: string): boolean => {
+      if (seenLeft.has(x)) return false;
+      seenLeft.add(x);
+      for (const v of reach.get(x) ?? []) {
+        const other = matchR.get(v);
+        if (other === undefined || augment(other)) {
+          matchR.set(v, x);
+          return true;
+        }
+      }
+      return false;
+    };
+    augment(u);
+  }
+
+  /* 由匹配边接续成链：nextOf[u] = 组内紧随 u 的卡片。
+     链首 = 没有作为右侧被匹配的节点（组内没有前一张卡片）；
+     组顺序按链首在确定性拓扑序中的先后排列。 */
+  const nextOf = new Map<string, string>();
+  for (const [v, u] of matchR) nextOf.set(u, v);
+  const hasPredecessor = new Set(matchR.keys());
+  const groups: string[][] = [];
+  for (const head of order) {
+    if (hasPredecessor.has(head)) continue;
+    const chain: string[] = [];
+    let cur: string | undefined = head;
+    while (cur !== undefined) {
+      chain.push(cur);
+      cur = nextOf.get(cur);
+    }
+    groups.push(chain);
+  }
+  return { groupCount: groups.length, groups };
+}
