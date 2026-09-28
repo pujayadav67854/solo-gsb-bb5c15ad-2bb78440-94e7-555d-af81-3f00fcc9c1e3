@@ -101,6 +101,21 @@ export interface BypassPathResult {
   path: string[] | null;
 }
 
+/* ---------- 最少复核链（只读） ---------- */
+
+/** 一条复核链：组内卡片按先后排列，前卡沿现有连线可达后卡（路径可穿过其他组） */
+export interface ReviewChain {
+  cardIds: string[];
+}
+
+/** 最少复核链分析结果（只读）：全局最少组数与一份对应分组 */
+export interface ReviewChainsResult {
+  /** 全局最少组数（空图为 0；孤立卡各占一组） */
+  chainCount: number;
+  /** 达到最少组数的一份分组，每张卡片恰好出现一次；按各组首卡的约束先后排列 */
+  chains: ReviewChain[];
+}
+
 /* ---------- 时间窗口分析（只读） ---------- */
 
 /** 单张卡片在事故闭区间内的可行赋时窗口（最早 / 最晚时刻） */

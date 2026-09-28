@@ -9,6 +9,7 @@ import {
   findPath,
   findRedundantEdges,
   mergeConflict,
+  minimumReviewChains,
   planMergeEdges,
   planPrune,
   queryOrder,
@@ -734,3 +735,130 @@ test('analyzeTimeWindow：有环图返回 null', () => {
   ];
   assert.equal(analyzeTimeWindow(nodes, edges, fixedMap({ a: null, b: null }), T(2), T(5), GAP), null);
 });
+
+/* ---------- 最少复核链 ---------- */
+
+/** 校验分组是合法的链覆盖：每张卡恰好出现一次，链内前卡沿现有连线可达后卡 */
+function assertValidChainCover(ids: string[], edges: Array<{ fromId: string; toId: string }>, r: NonNullable<ReturnType<typeof minimumReviewChains>>) {
+  const flat = r.chains.flatMap((c) => c.cardIds);
+  assert.equal(flat.length, ids.length, '每张卡片必须恰好归入一组');
+  assert.equal(new Set(flat).size, ids.length, '卡片不得重复分组');
+  for (const id of ids) assert.ok(flat.includes(id), `卡片 ${id} 未被分组`);
+  assert.equal(r.chainCount, r.chains.length);
+  for (const chain of r.chains) {
+    for (let i = 0; i < chain.cardIds.length - 1; i++) {
+      assert.ok(
+        findPath(edges, chain.cardIds[i], chain.cardIds[i + 1]),
+        `链内相邻组员须沿现有连线可达：${chain.cardIds[i]} → ${chain.cardIds[i + 1]}`,
+      );
+    }
+  }
+}
+
+test('minimumReviewChains：空图为零组', () => {
+  assert.deepEqual(minimumReviewChains([], []), { chainCount: 0, chains: [] });
+});
+
+test('minimumReviewChains：无连线时每张孤立卡单独成组', () => {
+  const nodes = nodesOf(['a', 'b', 'c']);
+  const r = minimumReviewChains(nodes, [])!;
+  assertValidChainCover(['a', 'b', 'c'], [], r);
+  assert.equal(r.chainCount, 3);
+  assert.deepEqual(r.chains.map((c) => c.cardIds), [['a'], ['b'], ['c']]);
+});
+
+test('minimumReviewChains：单条链 a→b→c 可全部归入一组（不能按层数给出 3 组）', () => {
+  const nodes = nodesOf(['a', 'b', 'c']);
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'b', toId: 'c' },
+  ];
+  const r = minimumReviewChains(nodes, edges)!;
+  assertValidChainCover(['a', 'b', 'c'], edges, r);
+  assert.equal(r.chainCount, 1);
+  assert.deepEqual(r.chains.map((c) => c.cardIds), [['a', 'b', 'c']]);
+});
+
+test('minimumReviewChains：路径可经过其他组卡片——链 a→x→b 与孤立 s 共 2 组', () => {
+  const nodes = nodesOf(['a', 'x', 'b', 's']);
+  const edges = [
+    { fromId: 'a', toId: 'x' },
+    { fromId: 'x', toId: 'b' },
+  ];
+  const r = minimumReviewChains(nodes, edges)!;
+  assertValidChainCover(['a', 'x', 'b', 's'], edges, r);
+  assert.equal(r.chainCount, 2);
+  assert.deepEqual(r.chains.map((c) => c.cardIds), [['a', 'x', 'b'], ['s']]);
+});
+
+test('minimumReviewChains：组成员可被其他组路径穿过——不要求相邻组员直接相连', () => {
+  // 图：a→x→b 且 a→y→b（菱形）+ a→b 直达边；宽度为 2，最少 2 组。
+  // 任意最优分组中 a、b 同组时，中间卡片 x、y 在另一组；a 到 b 沿现有连线可达，
+  // 但路径穿过属于别组的 x 或 y——assertValidChainCover 用图上 findPath 复核（路径允许含组外卡片）。
+  const nodes = nodesOf(['a', 'x', 'y', 'b']);
+  const edges = [
+    { fromId: 'a', toId: 'x' },
+    { fromId: 'x', toId: 'b' },
+    { fromId: 'a', toId: 'y' },
+    { fromId: 'y', toId: 'b' },
+    { fromId: 'a', toId: 'b' },
+  ];
+  const r = minimumReviewChains(nodes, edges)!;
+  assertValidChainCover(['a', 'x', 'y', 'b'], edges, r);
+  assert.equal(r.chainCount, 2);
+  // 存在一组同时含 a、b（可能经直达边或穿过别组的 x/y 相连）
+  assert.ok(r.chains.some((c) => c.cardIds[0] === 'a' && c.cardIds.includes('b')));
+});
+
+test('minimumReviewChains：菱形 a→b→d、a→c→d 最少 2 组（贪心逐层配对无法更优）', () => {
+  const nodes = nodesOf(['a', 'b', 'c', 'd']);
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'a', toId: 'c' },
+    { fromId: 'b', toId: 'd' },
+    { fromId: 'c', toId: 'd' },
+  ];
+  const r = minimumReviewChains(nodes, edges)!;
+  assertValidChainCover(['a', 'b', 'c', 'd'], edges, r);
+  assert.equal(r.chainCount, 2);
+  // 确定性分组：拓扑序 a,b,c,d，Kuhn 匹配得到 a→b、b→d，c 单独
+  assert.deepEqual(r.chains.map((c) => c.cardIds), [
+    ['a', 'b', 'd'],
+    ['c'],
+  ]);
+});
+
+test('minimumReviewChains：按传递闭包而非直接连线合并——只有 a→c、a→b、b→c 时仍可成组', () => {
+  const nodes = nodesOf(['a', 'b', 'c']);
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'b', toId: 'c' },
+    { fromId: 'a', toId: 'c' },
+  ];
+  const r = minimumReviewChains(nodes, edges)!;
+  assertValidChainCover(['a', 'b', 'c'], edges, r);
+  assert.equal(r.chainCount, 1);
+  assert.deepEqual(r.chains[0].cardIds, ['a', 'b', 'c']);
+});
+
+test('minimumReviewChains：互不可达的多条链按宽度成组', () => {
+  // 两条不相连的链：a→b 与 c→d，最少 2 组
+  const nodes = nodesOf(['a', 'b', 'c', 'd']);
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'c', toId: 'd' },
+  ];
+  const r = minimumReviewChains(nodes, edges)!;
+  assertValidChainCover(['a', 'b', 'c', 'd'], edges, r);
+  assert.equal(r.chainCount, 2);
+});
+
+test('minimumReviewChains：有环图返回 null', () => {
+  const nodes = nodesOf(['a', 'b']);
+  const edges = [
+    { fromId: 'a', toId: 'b' },
+    { fromId: 'b', toId: 'a' },
+  ];
+  assert.equal(minimumReviewChains(nodes, edges), null);
+});
+

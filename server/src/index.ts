@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { db, getEdges, getEvidence } from './db';
-import { analyzeMustPass, analyzeTimeWindow, cycleAfterAdding, findBypassPath, findCycle, findRedundantEdges, mergeConflict, planMergeEdges, planPrune, queryOrder, topoLevels } from './graph';
+import { analyzeMustPass, analyzeTimeWindow, cycleAfterAdding, findBypassPath, findCycle, findRedundantEdges, mergeConflict, minimumReviewChains, planMergeEdges, planPrune, queryOrder, topoLevels } from './graph';
 import {
   checkPreviewToken,
   computeImportDiff,
@@ -16,7 +16,7 @@ import {
   toEvidenceRows,
 } from './importing';
 import { resetWithSample, seedIfEmpty } from './seed';
-import type { BypassPathResult, GraphState, MustPassResult, OrderQueryResult, OrderWitness, PruneResult, RedundancyReport, TimeWindowResult } from './types';
+import type { BypassPathResult, GraphState, MustPassResult, OrderQueryResult, OrderWitness, PruneResult, RedundancyReport, ReviewChainsResult, TimeWindowResult } from './types';
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -413,6 +413,21 @@ app.get('/api/time-window', (req, res) => {
       : null,
   };
   res.json(result);
+});
+
+/* ---------- 最少复核链（只读） ---------- */
+
+app.get('/api/review-chains', (_req, res) => {
+  const evidence = getEvidence();
+  const result = minimumReviewChains(
+    evidence.map((e) => ({ id: e.id, createdAt: e.createdAt })),
+    getEdges(),
+  );
+  if (!result) {
+    return res.status(409).json({ message: '当前约束图存在环，无法计算最少复核链' });
+  }
+  const body: ReviewChainsResult = result;
+  res.json(body);
 });
 
 /* ---------- 导入 / 导出 / 示例 ---------- */

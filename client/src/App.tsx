@@ -7,6 +7,7 @@ import ImportPreviewDialog from './components/ImportPreviewDialog';
 import MustPassPanel from './components/MustPassPanel';
 import OrderQueryPanel from './components/OrderQueryPanel';
 import PrunePanel from './components/PrunePanel';
+import ReviewChainsPanel from './components/ReviewChainsPanel';
 import TimeWindowPanel from './components/TimeWindowPanel';
 import TimelinePanel from './components/TimelinePanel';
 import type { Evidence, EvidenceFormValues, GraphState, ImportDiff, MergeConflict, MustPassHighlight, OrderWitness, RedundantEdge, TimeWindowHighlight } from './types';
@@ -36,6 +37,8 @@ export default function App() {
   const [mustPassHL, setMustPassHL] = useState<MustPassHighlight | null>(null);
   /** 时间窗口分析：画布上的冲突路径 / 越界定位（由 TimeWindowPanel 全权维护） */
   const [timeWindowHL, setTimeWindowHL] = useState<TimeWindowHighlight | null>(null);
+  /** 最少复核链：画布上高亮的组员卡片（由 ReviewChainsPanel 全权维护） */
+  const [reviewChainHL, setReviewChainHL] = useState<string[] | null>(null);
   /** JSON 导入差异预览：令牌 + 原始文件内容与当前图/文件绑定；staleMessage 非空时确认按钮禁用 */
   const [importPreview, setImportPreview] = useState<
     { fileName: string; snapshotText: string; token: string; diff: ImportDiff; staleMessage: string | null } | null
@@ -370,6 +373,8 @@ export default function App() {
 
       {state && <TimeWindowPanel state={state} titleOf={titleOf} onHighlight={setTimeWindowHL} />}
 
+      {state && <ReviewChainsPanel state={state} titleOf={titleOf} onHighlight={setReviewChainHL} />}
+
       {orderPreview && (
         <div className="preview-banner">
           <span>
@@ -413,6 +418,7 @@ export default function App() {
               preview={orderPreview}
               mustPass={mustPassHL}
               timeWindow={timeWindowHL}
+              reviewChain={reviewChainHL}
               onStartLink={setLinkFrom}
               onCancelLink={() => setLinkFrom(null)}
               onConnect={connect}

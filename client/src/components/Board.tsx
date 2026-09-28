@@ -25,6 +25,8 @@ interface BoardProps {
   mustPass: MustPassHighlight | null;
   /** 时间窗口分析：冲突路径 / 待定位的越界卡片（红色系） */
   timeWindow: TimeWindowHighlight | null;
+  /** 最少复核链：当前选中组的组员卡片（黄绿色高亮），组外卡片淡显 */
+  reviewChain: string[] | null;
   onStartLink: (id: string) => void;
   onCancelLink: () => void;
   onConnect: (fromId: string, toId: string) => void;
@@ -169,6 +171,10 @@ export default function Board(props: BoardProps) {
   const twPathNodes = useMemo(() => new Set(props.timeWindow?.path ?? []), [props.timeWindow]);
   const twPivotId = props.timeWindow?.pivotId ?? null;
   const twOutOfRange = useMemo(() => new Set(props.timeWindow?.outOfRange ?? []), [props.timeWindow]);
+
+  /* 最少复核链高亮：选中组的组员（黄绿色），其余卡片淡显 */
+  const reviewChainMembers = useMemo(() => new Set(props.reviewChain ?? []), [props.reviewChain]);
+  const reviewChainOn = props.reviewChain !== null;
 
   /* 越界固定卡首次出现时滚动到可视区域（定位） */
   useEffect(() => {
@@ -390,6 +396,8 @@ export default function Board(props: BoardProps) {
               const isTwPath = twPathNodes.has(ev.id);
               const isTwPivot = twPivotId === ev.id;
               const isTwOutOfRange = twOutOfRange.has(ev.id);
+              const isReviewMember = reviewChainMembers.has(ev.id);
+              const isReviewDim = reviewChainOn && !isReviewMember;
               return (
                 <article
                   key={ev.id}
@@ -411,6 +419,8 @@ export default function Board(props: BoardProps) {
                     isTwPath ? 'tw-path' : '',
                     isTwPivot ? 'tw-pivot' : '',
                     isTwOutOfRange ? 'tw-outrange' : '',
+                    isReviewMember ? 'review-member' : '',
+                    isReviewDim ? 'review-dim' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')}

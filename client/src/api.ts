@@ -1,4 +1,4 @@
-import type { BypassPathResult, EvidenceFormValues, GraphState, ImportPreviewResult, MergeConflictKind, MustPassResult, OrderQueryResult, PruneResult, RedundantEdge, TimeWindowResult } from './types';
+import type { BypassPathResult, EvidenceFormValues, GraphState, ImportPreviewResult, MergeConflictKind, MustPassResult, OrderQueryResult, PruneResult, RedundantEdge, ReviewChainsResult, TimeWindowResult } from './types';
 
 export class ApiError extends Error {
   status: number;
@@ -53,6 +53,8 @@ export const api = {
     request<TimeWindowResult>(
       `/api/time-window?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&gap=${encodeURIComponent(String(gapMinutes))}`,
     ),
+  /** 最少复核链（只读）：全局最少组数与一份对应分组 */
+  reviewChains: () => request<ReviewChainsResult>('/api/review-chains'),
   /** 导入差异预览（只读）：服务端沿用导入校验，返回与当前图的逐项差异和一次性确认令牌 */
   importPreview: (snapshotText: string) =>
     request<ImportPreviewResult>('/api/import/preview', json('POST', { snapshotText })),

@@ -378,6 +378,108 @@ export function findBypassPath(edges: EdgeLike[], aId: string, bId: string, skip
   return findPath(rest, aId, bId);
 }
 
+/* ---------- 最少复核链（传递闭包 DAG 的最小路径覆盖，全局最优） ---------- */
+
+export interface ReviewChain {
+  /**
+   * 同一条复核链上的卡片，按先后顺序排列：对任意 i < j，
+   * 沿现有「必须早于」连线从前卡可达后卡（路径可经过其他组的卡片，不要求相邻组员直接相连）。
+   */
+  cardIds: string[];
+}
+
+export interface ReviewChainsResult {
+  /** 全局最少组数（= 卡片数 − 传递闭包二分图最大匹配数） */
+  chainCount: number;
+  /** 一份达到最少组数的分组；每张卡片恰好出现一次；空图为空数组（零组） */
+  chains: ReviewChain[];
+}
+
+/**
+ * 最少复核链：把全部卡片分成尽量少的组，使每组都能按先后排列、
+ * 前卡沿现有「必须早于」连线可达后卡（允许路径穿过其他组的卡片）。
+ *
+ * 这是偏序（可达关系）的最小链分解：在传递闭包上做最小路径覆盖。
+ * 经典构造：把每张卡片拆成二分图左右两个副本，只要 u 可达 v（u≠v）
+ * 就连一条左 u → 右 v 的边，求该二分图的最大匹配 M；
+ * 每条匹配边表示「u 与 v 在同一条链中前后相邻」，
+ * 于是最少链数 = 卡片数 − |M|（Dilworth / König），
+ * 最大匹配给出的就是全局最优，而非贪心或拓扑层数近似。
+ *
+ * 节点按确定性拓扑序处理、邻接表按拓扑位置排序，保证同一输入永远产出同一份分组。
+ * 图有环时返回 null（现有图本就保证无环）；空图返回零组；孤立卡各自单独成组。
+ */
+export function minimumReviewChains(nodes: OrderableNode[], edges: EdgeLike[]): ReviewChainsResult | null {
+  const order = stableTopoOrder(nodes, edges);
+  if (!order) return null;
+  const n = order.length;
+  if (n === 0) return { chainCount: 0, chains: [] };
+  const pos = new Map(order.map((id, i) => [id, i]));
+
+  const adj = new Map<string, number[]>();
+  for (const id of order) adj.set(id, []);
+  for (const e of edges) {
+    if (pos.has(e.fromId) && pos.has(e.toId)) adj.get(e.fromId)!.push(pos.get(e.toId)!);
+  }
+
+  /* 传递闭包：reach[u] 为从 u 可达的全部节点（按拓扑位置升序，确定） */
+  const reach: Array<Set<number>> = order.map(() => new Set<number>());
+  for (let i = n - 1; i >= 0; i--) {
+    const s = reach[i];
+    for (const j of adj.get(order[i])!) {
+      s.add(j);
+      for (const k of reach[j]) s.add(k);
+    }
+  }
+  const closure: number[][] = reach.map((s) => [...s].sort((a, b) => a - b));
+
+  /* Kuhn 增广路求最大匹配：matchR[r] = 与右副本 r 配对的左副本（-1=未配对） */
+  const matchR = new Int32Array(n).fill(-1);
+  const seen = new Uint8Array(n);
+  const augment = (u: number): boolean => {
+    for (const v of closure[u]) {
+      if (seen[v]) continue;
+      seen[v] = 1;
+      if (matchR[v] === -1 || augment(matchR[v])) {
+        matchR[v] = u;
+        return true;
+      }
+    }
+    return false;
+  };
+  for (let u = 0; u < n; u++) {
+    seen.fill(0);
+    augment(u);
+  }
+
+  /* next[u] = u 所在链中的下一张卡片；每条链从「没有左副本与它配对」的节点开始 */
+  const next = new Int32Array(n).fill(-1);
+  const hasPred = new Uint8Array(n);
+  let matched = 0;
+  for (let v = 0; v < n; v++) {
+    const u = matchR[v];
+    if (u !== -1) {
+      next[u] = v;
+      hasPred[v] = 1;
+      matched++;
+    }
+  }
+  const chains: ReviewChain[] = [];
+  for (let start = 0; start < n; start++) {
+    if (hasPred[start]) continue;
+    const cardIds: string[] = [];
+    let cur = start;
+    while (cur !== -1) {
+      cardIds.push(order[cur]);
+      cur = next[cur];
+    }
+    chains.push({ cardIds });
+  }
+  /* 组按各自首卡的拓扑先后排列，输出确定 */
+  chains.sort((a, b) => pos.get(a.cardIds[0])! - pos.get(b.cardIds[0])!);
+  return { chainCount: n - matched, chains };
+}
+
 /**
  * 在已有图中寻找一个环（用于导入快照校验）。
  * 返回闭环节点序列 [n, …, n]；无环返回 null。
